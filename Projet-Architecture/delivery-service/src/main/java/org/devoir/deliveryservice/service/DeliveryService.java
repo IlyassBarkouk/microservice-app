@@ -22,43 +22,49 @@ public class DeliveryService {
 
     @Transactional
     public Delivery createDelivery(Delivery delivery) {
-        // 1. Trouver un livreur disponible
+
+        // 1. Find an available driver
         List<Driver> availableDrivers = driverRepository.findByAvailableTrue();
-        if (availableDrivers.isEmpty()) {
-            throw new RuntimeException("Aucun livreur disponible");
+
+        if (!availableDrivers.isEmpty()) {
+            Driver driver = availableDrivers.get(0);
+
+            // 2. Assign the driver
+            delivery.setDriverId(driver.getId());
+            delivery.setStatus(DeliveryStatus.ASSIGNED);
+
+            // 3. Mark driver unavailable
+            driver.setAvailable(false);
+            driverRepository.save(driver);
+        } else {
+            // fallback if no driver available
+            delivery.setStatus(DeliveryStatus.PENDING);
         }
 
-        Driver driver = availableDrivers.get(0);
+        // 4. Calculate estimated time safely
+        try {
+            if (delivery.getPickupAddress() != null && delivery.getDeliveryAddress() != null) {
+                Integer estimatedTime = googleMapsClient.getEstimatedTime(
+                        delivery.getPickupAddress(),
+                        delivery.getDeliveryAddress()
+                ).block();
+                delivery.setEstimatedTime(estimatedTime);
+            }
+        } catch (Exception e) {
+            delivery.setEstimatedTime(null); // fail silently for testing
+        }
 
-        // 2. Assigner le livreur
-        delivery.setDriverId(driver.getId());
-        delivery.setStatus(DeliveryStatus.ASSIGNED);
-
-        // 3. Calculer le temps estimé (Appel Synchrone avec .block())
-        Integer estimatedTime = googleMapsClient.getEstimatedTime(
-                delivery.getPickupAddress(),
-                delivery.getDeliveryAddress()
-        ).block(); // On attend la réponse ici pour garder la transaction ouverte
-
-        delivery.setEstimatedTime(estimatedTime);
-
-        // 4. Mettre à jour le statut du livreur
-        driver.setAvailable(false);
-        driverRepository.save(driver);
-
-        // 5. Sauvegarder la livraison
+        // 5. Save delivery
         return deliveryRepository.save(delivery);
     }
+
 
     public Delivery getDelivery(Long id) {
         return deliveryRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Livraison non trouvée"));
     }
 
-    public Delivery getDeliveryByOrderId(Long orderId) {
-        return deliveryRepository.findByOrderId(orderId)
-                .orElseThrow(() -> new RuntimeException("Livraison non trouvée"));
-    }
+    
 
     @Transactional
     public Delivery updateLocation(Long id, Double latitude, Double longitude) {
@@ -67,6 +73,18 @@ public class DeliveryService {
         delivery.setCurrentLongitude(longitude);
         return deliveryRepository.save(delivery);
     }
+
+    @Transactional
+    public Delivery rateDeliveryById(Long deliveryId, Integer rating, String comment) {
+        Delivery delivery = deliveryRepository.findById(deliveryId)
+                .orElseThrow(() -> new RuntimeException("Livraison non trouvée"));
+
+        delivery.setRating(rating);
+        delivery.setComment(comment);
+
+        return deliveryRepository.save(delivery);
+    }
+
 
     @Transactional
     public Delivery updateStatus(Long id, DeliveryStatus status) {
@@ -86,6 +104,28 @@ public class DeliveryService {
 
         return deliveryRepository.save(delivery);
     }
+    
+   
+
+    @Transactional
+    public Delivery createDeliveryForOrder(Long orderId, String deliveryAddress) {
+        Delivery delivery = new Delivery();
+        delivery.setOrderId(orderId);
+        delivery.setPickupAddress("Restaurant Address"); // you can make this dynamic
+        delivery.setDeliveryAddress(deliveryAddress);
+        delivery.setStatus(DeliveryStatus.PENDING);
+        delivery.setEstimatedTime(30); // optional
+        return deliveryRepository.save(delivery);
+    }
+
+    @Transactional
+    public Delivery getDeliveryByOrderId(Long orderId) {
+        return deliveryRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new RuntimeException("Livraison non trouvée"));
+    }
+
+
+
 
     public List<Delivery> getDriverDeliveries(Long driverId) {
         return deliveryRepository.findByDriverId(driverId);

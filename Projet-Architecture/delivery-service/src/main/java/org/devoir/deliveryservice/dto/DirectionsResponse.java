@@ -31,4 +31,5 @@ public class DirectionsResponse {
         private String text;
         private Integer value;
     }
+    
 }

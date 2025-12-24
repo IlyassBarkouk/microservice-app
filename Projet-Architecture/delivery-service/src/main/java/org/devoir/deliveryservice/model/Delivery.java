@@ -31,4 +31,7 @@ public class Delivery {
     private Integer estimatedTime;
     private LocalDateTime pickupTime;
     private LocalDateTime deliveryTime;
+    
+    private Integer rating;        // 1 → 5
+    private String comment;  // optional
 }
